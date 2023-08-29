@@ -1,4 +1,6 @@
 // See https://kit.svelte.dev/docs/types#app
+
+
 // for information about these interfaces
 declare global {
 	namespace App {
@@ -8,5 +10,7 @@ declare global {
 		// interface Platform {}
 	}
 }
+
+// declare module 'qrcodejs';
 
 export {};
