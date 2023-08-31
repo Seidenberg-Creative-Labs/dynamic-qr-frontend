@@ -3,6 +3,7 @@
 	import { browser, dev } from '$app/environment';
 	import { onMount, tick } from 'svelte';
 	import type { Action } from 'svelte/action';
+	import { PUBLIC_MODE } from '$env/static/public';
 	import QRious from 'qrious';
 	type Schema = {
 		category: string;
@@ -14,46 +15,59 @@
 	const keys = ['PLV', 'NYC', 'Generic'] as const;
 	let currentTab: (typeof keys)[number] = 'PLV';
 	const cache = new Map<string, typeof data>();
-
 	onMount(async () => {
 		getData(currentTab);
 	});
 
 	function changeTab(e: MouseEvent) {
-		currentTab = e.target?.dataset.value;
-		getData(currentTab);
+		if (currentTab !== e.target?.dataset.value) {
+			currentTab = e.target?.dataset.value;
+			getData(currentTab);
+		}
 	}
 	async function getData(category: string) {
 		if (cache.has(category)) {
+			console.log('hitting the cache');
 			data = cache.get(category)!;
 			console.log(data);
 			return;
 		}
-		// if (dev) {
-		let jsonData = Object.assign(
-			{},
-			await import('$lib/dynamic-qr-a3cee-default-rtdb-DEV-export.json').then(
-				(data) => data.default satisfies Record<string, Schema>
-			)
-		);
-		console.log('full json data', jsonData);
-		for (const key of Object.keys(jsonData)) {
-			if ((jsonData as Record<string, Schema>)[key].category !== category) {
-				//@ts-ignore
-				delete jsonData[key];
+		console.log('Querying');
+		data = {};
+		if (PUBLIC_MODE === 'mock') {
+			let jsonData = Object.assign(
+				{},
+				await import('$lib/dynamic-qr-a3cee-default-rtdb-DEV-export.json').then(
+					(data) => data.default satisfies Record<string, Schema>
+				)
+			);
+			console.log('full json data', jsonData);
+			for (const key of Object.keys(jsonData)) {
+				if ((jsonData as Record<string, Schema>)[key].category !== category) {
+					//@ts-ignore
+					delete jsonData[key];
+				}
 			}
+			console.log(jsonData);
+			data = jsonData;
+			cache.set(category, data);
+			return;
 		}
-		console.log(jsonData);
-		data = jsonData;
-		cache.set(category, jsonData);
-		// }
+		if (PUBLIC_MODE === 'prod') {
+			const url = new URL('https://dynamic-qr-a3cee-default-rtdb.firebaseio.com/DEV.json');
+			url.searchParams.set('orderBy', '"category"');
+			url.searchParams.set('equalTo', `\"${category}\"`);
+			console.log(url.toString());
+			const res = await fetch(url.toString());
+			data = await res.json();
+			cache.set(category, data);
+		}
 	}
 	const genQRCode: Action<HTMLImageElement, string> = (element: HTMLImageElement, id: string) => {
 		const qr = new QRious({
 			value: 'http://dynamic-qr.onrender.com/r/' + id,
 			size: 300
 		});
-		console.log(qr);
 		element.src = qr.toDataURL();
 		return {
 			update(parameter) {
@@ -63,14 +77,68 @@
 		};
 	};
 
-	function handleClick(key: string) {
-		console.log(key);
-		console.log(data[key]);
-		data[key]['description'] = 'Junior Was Here';
-		data[key]['category'] = 'Generic';
-		console.log(data[key]);
-		// data = data;
+	async function add(e: SubmitEvent) {
+		const form = new FormData(e.target);
+		const addData: Schema = {
+			category: form.get('category')!.toString(),
+			description: form.get('description')!.toString(),
+			redirectTo: form.get('redirectTo')!.toString()
+		};
+		console.log(addData);
+		// console.log(patchData);
+		const resp = await fetch(`https://dynamic-qr-a3cee-default-rtdb.firebaseio.com/DEV.json`, {
+			method: 'POST',
+			body: JSON.stringify(addData)
+		});
+		if (resp.status == 200) {
+			const respJSON = await resp.json();
+			console.log(respJSON);
+			if (form.get('category') != currentTab) {
+				// Invalidate the cache for that tab
+				cache.delete(form.get('category')!.toString());
+			} else {
+				data = Object.assign(data, { [respJSON.name]: addData });
+				cache.set(currentTab, data);
+				getData(currentTab);
+			}
+			e.target.reset();
+		}
 	}
+
+	async function edit(e: SubmitEvent) {
+		const id = e.currentTarget.dataset.id;
+		const form = new FormData(e.target);
+		const patchData: Record<string, string> = {};
+		for (const [key, value] of form.entries()) {
+			if (data[id][key] !== value) {
+				patchData[key] = value;
+			}
+		}
+		if (Object.entries(patchData).length < 1) {
+			alert('Nothing to change');
+			return;
+		}
+		const resp = await fetch(
+			`https://dynamic-qr-a3cee-default-rtdb.firebaseio.com/DEV/${id}.json`,
+			{
+				method: 'PATCH',
+				body: JSON.stringify(patchData)
+			}
+		);
+		console.log(resp.status);
+		if (resp.status == 200) {
+			alert('Successfully edited');
+			if (form.get('category') != currentTab) {
+				delete data[id];
+				cache.delete(form.get('category')!.toString());
+			} else {
+				data[id] = Object.assign(data[id], patchData);
+			}
+			cache.set(currentTab, data);
+			getData(currentTab);
+		}
+	}
+
 	const appendTo: Action<HTMLElement, string | 'body'> = (elem, selector = 'body') => {
 		const targetElem = document.querySelector(selector);
 		if (targetElem == null) {
@@ -79,8 +147,58 @@
 		targetElem.appendChild(elem);
 	};
 
-	function handleSubmit(e: SubmitEvent) {
-		console.log(e);
+	async function copyToClipboard(e: MouseEvent) {
+		const id = e.currentTarget.dataset.id;
+		console.log(id);
+		if (!id) {
+			alert("id for QR Code couldn't be copied. Contact Junior");
+			return;
+		}
+		const elem = document.querySelector(`img[data-id="${id}"]`) as HTMLImageElement | null;
+		if (!elem) {
+			alert("image with matching id doesn't exist. Contact Junior to troubleshoot");
+			return;
+		}
+		console.log(elem);
+		const imageSrc = elem.src;
+		const resp = await fetch(imageSrc);
+		const blob = await resp.blob();
+		navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]).then(
+			() => {
+				alert('copied to clipboard')!;
+			},
+			(err) => {
+				alert('Something went wrong copying to clipboard\n' + err);
+			}
+		);
+	}
+
+	async function deleteQRCode(e: MouseEvent) {
+		const hasConsented = confirm('Are you sure want to delete this?');
+		if (!hasConsented) {
+			return;
+		}
+		// console.log(e);
+		// console.log(e.target)
+		const id = e?.currentTarget.dataset.id;
+		console.log(id);
+		if (!id) {
+			alert('failed to delete');
+			return;
+		}
+		const resp = await fetch(
+			`https://dynamic-qr-a3cee-default-rtdb.firebaseio.com/DEV/${id}.json`,
+			{
+				method: 'DELETE'
+			}
+		);
+		console.log(resp.status);
+		if (resp.status === 200) {
+			delete data[id];
+			cache.set(currentTab, data);
+			data = data;
+			alert('Deleted Successfully');
+		}
 	}
 
 	const focus: Action<HTMLElement> = (target) => {
@@ -92,6 +210,42 @@
 
 <section class="container mx-auto px-6 py-4">
 	<h1 class="font-bold text-3xl">QR Code</h1>
+	<section>
+		<h2 class="font-semibold">Create QR Code</h2>
+		<form class="w-full bg-white flex flex-col gap-2" on:submit|preventDefault={add}>
+			<div class="flex flex-wrap w-full gap-2">
+				<div class="form-control flex-1">
+					<label for="description" class="label"><span class="label-text">Name</span></label>
+					<input type="text" class="input input-bordered input-sm" name="description" required />
+				</div>
+				<div class="form-control">
+					<label class="label" for="category">
+						<span class="label-text">Category</span>
+					</label>
+					<select class="select select-bordered select-sm w-full" name="category">
+						{#each keys as key, index}
+							<option value={key} selected={key === 'PLV'}>{key}</option>
+						{/each}
+					</select>
+				</div>
+			</div>
+			<section class="w-full">
+				<label for="redirectTo" class="label">
+					<span class="label-text">Destination (url)</span>
+				</label>
+				<input
+					type="text"
+					class="input input-bordered input-sm w-full"
+					name="redirectTo"
+					required
+				/>
+			</section>
+			<section>
+				<button type="submit" class="btn btn-sm">Submit</button>
+			</section>
+		</form>
+	</section>
+	<hr class="my-3" />
 	<div class="tabs">
 		{#each keys as key}
 			<button
@@ -141,17 +295,19 @@
 										slot="content"
 										class="w-full bg-white flex flex-col p-2 gap-2"
 										data-id={key}
-										on:submit|preventDefault={handleSubmit}
+										on:submit|preventDefault={edit}
 										use:appendTo={`#${key}`}
 										let:toggle
 									>
 										<div class="flex flex-wrap w-full gap-2">
 											<div class="form-control flex-1">
-												<label for="name" class="label"><span class="label-text">Name</span></label>
+												<label for="description" class="label"
+													><span class="label-text">Name</span></label
+												>
 												<input
 													type="text"
 													class="input input-bordered input-sm"
-													name="name"
+													name="description"
 													value={info.description}
 													use:focus
 												/>
@@ -162,19 +318,19 @@
 												</label>
 												<select class="select select-bordered select-sm w-full" name="category">
 													{#each keys as key}
-														<option value="key" selected={key === currentTab}>{key}</option>
+														<option value={key} selected={key === currentTab}>{key}</option>
 													{/each}
 												</select>
 											</div>
 										</div>
 										<section class="w-full">
-											<label for="destination" class="label"
+											<label for="redirectTo" class="label"
 												><span class="label-text">Destination (url)</span></label
 											>
 											<input
 												type="text"
 												class="input input-bordered input-sm w-full"
-												name="destination"
+												name="redirectTo"
 												value={info.redirectTo}
 											/>
 										</section>
@@ -186,7 +342,10 @@
 								</ContentToggleButton>
 							</li>
 							<li>
-								<button class="btn btn-outline h-full min-h-fit"
+								<button
+									class="btn btn-outline h-full min-h-fit"
+									data-id={key}
+									on:click={copyToClipboard}
 									><svg
 										xmlns="http://www.w3.org/2000/svg"
 										fill="none"
@@ -204,8 +363,13 @@
 								</button>
 							</li>
 							<li>
-								<button class="btn btn-warning h-full min-h-fit"
-									><svg
+								<button
+									id="delete"
+									class="btn btn-warning h-full min-h-fit"
+									data-id={key}
+									on:click={deleteQRCode}
+								>
+									<svg
 										xmlns="http://www.w3.org/2000/svg"
 										fill="none"
 										viewBox="0 0 24 24"
