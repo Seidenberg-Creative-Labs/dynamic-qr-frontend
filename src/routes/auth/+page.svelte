@@ -23,7 +23,7 @@
 	}
 </script>
 
-<main class="container mx-auto space-y-2">
+<main class="container mx-auto space-y-2 px-6 py-4">
 	<h1 class="font-bold text-3xl">Dynamic QR Sign-In Page</h1>
 	<p>Click on the Sign In Button to login through the app using your Google Account</p>
 	<p>If you're authorized you'll automatically be redirected to the home page</p>
