@@ -1,10 +1,10 @@
 <script lang="ts">
 	import ContentToggleButton from '$lib/ContentToggleButton.svelte';
-	import { browser, dev } from '$app/environment';
 	import { onMount, tick } from 'svelte';
 	import type { Action } from 'svelte/action';
-	import { PUBLIC_MODE } from '$env/static/public';
+	import { PUBLIC_DATABASE_URL, PUBLIC_DB_ENTRY, PUBLIC_MODE } from '$env/static/public';
 	import QRious from 'qrious';
+	import { userStore } from '$lib/firebase/store';
 	type Schema = {
 		category: string;
 		description: string;
@@ -54,7 +54,7 @@
 			return;
 		}
 		if (PUBLIC_MODE === 'prod') {
-			const url = new URL('https://dynamic-qr-a3cee-default-rtdb.firebaseio.com/DEV.json');
+			const url = new URL(`${PUBLIC_DATABASE_URL}/${PUBLIC_DB_ENTRY}.json`);
 			url.searchParams.set('orderBy', '"category"');
 			url.searchParams.set('equalTo', `\"${category}\"`);
 			console.log(url.toString());
@@ -65,7 +65,7 @@
 	}
 	const genQRCode: Action<HTMLImageElement, string> = (element: HTMLImageElement, id: string) => {
 		const qr = new QRious({
-			value: 'http://dynamic-qr.onrender.com/r/' + id,
+			value: `http://dynamic-qr${PUBLIC_DB_ENTRY === 'DEV' ? '-dev' : ''}.onrender.com/r/` + id,
 			size: 300
 		});
 		element.src = qr.toDataURL();
@@ -78,6 +78,9 @@
 	};
 
 	async function add(e: SubmitEvent) {
+		if (!$userStore) {
+			return;
+		}
 		const form = new FormData(e.target);
 		const addData: Schema = {
 			category: form.get('category')!.toString(),
@@ -86,7 +89,10 @@
 		};
 		console.log(addData);
 		// console.log(patchData);
-		const resp = await fetch(`https://dynamic-qr-a3cee-default-rtdb.firebaseio.com/DEV.json`, {
+		const url = new URL(`${PUBLIC_DATABASE_URL}/${PUBLIC_DB_ENTRY}.json`);
+		url.searchParams.set('auth', await $userStore.getIdToken());
+		console.log(url.toString());
+		const resp = await fetch(url, {
 			method: 'POST',
 			body: JSON.stringify(addData)
 		});
@@ -106,6 +112,9 @@
 	}
 
 	async function edit(e: SubmitEvent) {
+		if (!$userStore) {
+			return;
+		}
 		const id = e.currentTarget.dataset.id;
 		const form = new FormData(e.target);
 		const patchData: Record<string, string> = {};
@@ -118,13 +127,12 @@
 			alert('Nothing to change');
 			return;
 		}
-		const resp = await fetch(
-			`https://dynamic-qr-a3cee-default-rtdb.firebaseio.com/DEV/${id}.json`,
-			{
-				method: 'PATCH',
-				body: JSON.stringify(patchData)
-			}
-		);
+		const url = new URL(`${PUBLIC_DATABASE_URL}/${PUBLIC_DB_ENTRY}/${id}.json`);
+		url.searchParams.set('auth', await $userStore?.getIdToken());
+		const resp = await fetch(url, {
+			method: 'PATCH',
+			body: JSON.stringify(patchData)
+		});
 		console.log(resp.status);
 		if (resp.status == 200) {
 			alert('Successfully edited');
@@ -174,6 +182,9 @@
 	}
 
 	async function deleteQRCode(e: MouseEvent) {
+		if (!$userStore) {
+			return;
+		}
 		const hasConsented = confirm('Are you sure want to delete this?');
 		if (!hasConsented) {
 			return;
@@ -186,12 +197,11 @@
 			alert('failed to delete');
 			return;
 		}
-		const resp = await fetch(
-			`https://dynamic-qr-a3cee-default-rtdb.firebaseio.com/DEV/${id}.json`,
-			{
-				method: 'DELETE'
-			}
-		);
+		const url = new URL(`${PUBLIC_DATABASE_URL}/${PUBLIC_DB_ENTRY}/${id}.json`);
+		url.searchParams.set('auth', await $userStore?.getIdToken());
+		const resp = await fetch(url, {
+			method: 'DELETE'
+		});
 		console.log(resp.status);
 		if (resp.status === 200) {
 			delete data[id];
@@ -206,6 +216,10 @@
 			target.focus();
 		});
 	};
+
+	$: {
+		console.log($userStore);
+	}
 </script>
 
 <section class="container mx-auto px-6 py-4">
