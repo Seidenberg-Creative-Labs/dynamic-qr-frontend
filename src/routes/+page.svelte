@@ -98,6 +98,7 @@
 			body: JSON.stringify(addData)
 		});
 		if (resp.status == 200) {
+			alert('Success!');
 			const respJSON = await resp.json();
 			console.log(respJSON);
 			if (form.get('category') != currentTab) {
