@@ -223,7 +223,7 @@
 	}
 </script>
 
-<section class="container mx-auto px-6 py-4" id="main">
+<section class="container mx-auto px-6 lg:px-8 py-4" id="main">
 	<h1 class="font-bold text-3xl">QR Code</h1>
 	<section>
 		<h2 class="font-semibold">Create QR Code</h2>
@@ -272,7 +272,7 @@
 		{/each}
 	</div>
 	<div class="my-1" id="print">
-		<small class="block">Change size of QR Code when you press "Print"</small>
+		<small class="block">Size of QR Code (in inches) when you press "Print"</small>
 		<div class="flex items-center mt-1 gap-x-1">
 			<input
 				placeholder="Size Of QR Code for Print"
