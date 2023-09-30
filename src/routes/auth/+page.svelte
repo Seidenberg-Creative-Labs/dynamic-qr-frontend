@@ -1,7 +1,7 @@
 <script>
+	import { goto, invalidate } from '$app/navigation';
 	import { auth } from '$lib/firebase/app';
 	import { signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
-
 	async function handleLogin() {
 		const provider = new GoogleAuthProvider();
 
@@ -19,7 +19,10 @@
 			alert('failed to set cookie');
 			return;
 		}
-		window.location.href = '/';
+		// invalidate('/').then(() => {
+		goto('/');
+		// });
+		// window.location.href = '/';
 	}
 </script>
 

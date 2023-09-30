@@ -1,6 +1,6 @@
 import { redirect, type Handle } from '@sveltejs/kit';
 import { app } from '$lib/server/admin';
-import { sequence } from '@sveltejs/kit/hooks';
+import { ALLOWED_EMAILS } from '$env/static/private';
 const protectRoutes = ['/'];
 export const handle: Handle = async ({ event, resolve }) => {
 	if (!protectRoutes.includes(event.url.pathname)) {
@@ -12,9 +12,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 		throw redirect(303, '/auth');
 	}
 	const token = await app.verifySessionCookie(sessionToken);
-	console.log('token', token);
-	console.log('should not go through', token.email !== 'jphillipjean@gmail.com');
-	if (token.email !== 'jphillipjean@gmail.com') {
+	const whitelist = ALLOWED_EMAILS.split(',');
+	if (!whitelist.includes(token.email)) {
 		event.cookies.delete('sessionToken');
 		throw redirect(303, '/notauthorized');
 	}
